@@ -1,0 +1,38 @@
+# Kaggle (2x T4) overrides. The notebook copies this file, applies per-round settings, and
+# passes the result with --config. Everything not listed here uses the defaults.
+model:
+  path: /kaggle/input/qwen2.5-coder/transformers/7b-instruct/1   # attach this Kaggle Model
+  training_gpu_index: 0           # training uses GPU 0 only (4-bit QLoRA)
+
+serve:
+  tokenizer: /kaggle/input/qwen2.5-coder/transformers/7b-instruct/1
+  vllm_executable: /kaggle/working/vllm-env/bin/vllm   # vLLM lives in its own virtualenv
+  concurrency: 16
+
+vllm:
+  tensor_parallel_size: 2         # generation uses both T4s; training cannot run at the same time
+  max_model_len: 6144
+  gpu_memory_utilization: 0.90
+  enforce_eager: true
+
+train:
+  output_dir: /kaggle/working/outputs/train
+  optimizer: paged_adamw_8bit     # saves optimizer memory on a 16 GB T4 (needs bitsandbytes)
+  fp16: true
+  gradient_checkpointing: true
+  max_length: 2048
+  batch_size: 1
+  gradient_accumulation_steps: 8
+
+generate:
+  output_dir: /kaggle/working/outputs/round0
+  num_tasks: 50                   # PILOT size: measure pass rate and speed before scaling
+  eval_tasks: 40
+  samples_per_task: 2
+
+graph:
+  candidates: 1
+  checkpoint_db: /kaggle/working/outputs/checkpoints.db
+
+langsmith:
+  enabled: false                  # opt in by setting true + a LANGSMITH_API_KEY Kaggle secret

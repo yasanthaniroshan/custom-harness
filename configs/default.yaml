@@ -1,0 +1,139 @@
+# Default configuration. Mirrors src/harness/config.py (a test keeps the two in sync).
+# Override any value with a smaller YAML file: harness --config my.yaml <command>
+
+model:
+  path: /kaggle/input/qwen2.5-coder/transformers/7b-instruct/1
+  load_in_4bit: true
+  quantization_type: nf4
+  double_quantization: true
+  compute_dtype: float16          # T4 GPUs have no bfloat16
+  training_gpu_index: 0
+
+data:
+  dataset: ise-uiuc/Magicoder-OSS-Instruct-75K   # seed tasks + optional mixed-in rows
+  split: train
+  seed: 42
+  sft_paths: []                   # filtered self-generated JSONL files, e.g. [outputs/round0/sft.jsonl]
+  magicoder_mix: 0.25             # share of Magicoder rows in the mix when sft_paths is set
+  magicoder_samples: 10000        # Magicoder rows used when there is no self-generated data
+  magicoder_language: null        # e.g. python
+
+sampling:
+  max_new_tokens: 2048
+  temperature: 0.7
+  top_p: 0.95
+
+agent:
+  system_prompt: "You are a careful senior Python engineer. Be concise."
+  code_temperature: 0.2
+  test_timeout_seconds: 10
+  max_test_report_chars: 1500
+  max_agent_steps: 12
+  max_error_streak: 3
+  solution_file: solution.py
+  workspace_seed: null            # directory copied into each workspace (repo-level tasks)
+
+vllm:
+  tensor_parallel_size: 2
+  max_model_len: 6144
+  gpu_memory_utilization: 0.90
+  enforce_eager: true
+  dtype: half
+
+serve:                            # `harness serve` starts this; the pipeline connects to it
+  host: 127.0.0.1
+  port: 8000
+  served_model_name: harness
+  tool_call_parser: hermes
+  concurrency: 16
+  request_timeout_seconds: 300.0
+  max_retries: 2
+  structured_output_method: json_schema
+  tokenizer: null                 # tokenizer path for exact token counts (else ~4 chars/token)
+  vllm_executable: vllm           # e.g. /kaggle/working/vllm-env/bin/vllm (separate virtualenv)
+
+generate:
+  seed_language: python
+  num_tasks: 200
+  eval_tasks: 100
+  samples_per_task: 4
+  prose_temperature: 0.8
+  code_temperature: 0.6
+  eval_temperature: 0.2
+  max_task_chars: 1500
+  review_only_passed: true
+  output_dir: outputs/round0
+
+filter:
+  min_tests: 3
+  max_stub_pass_fraction: 0.5
+  max_runs_per_task: 2
+  reject_blockers: true
+  max_tool_errors: 3
+
+context:
+  max_prompt_tokens: 4096         # max_model_len (6144) minus max_new_tokens (2048)
+  artifact_max_tokens: 2500
+  test_output_max_tokens: 400
+  conventions: {}                 # e.g. {"*": "Use type hints.", implement: "No third-party imports."}
+  few_shot_path: null             # filtered SFT JSONL to retrieve examples from
+  few_shot_count: 0               # 0 = off
+  few_shot_max_tokens: 600
+
+tools:
+  max_result_tokens: 800
+  max_read_lines: 200
+  max_grep_matches: 50
+  max_glob_results: 100
+  max_repeat_calls: 2
+  hidden_globs: []                # e.g. ["tests/*"] keeps hidden tests invisible to every tool
+
+graph:
+  candidates: 1                   # >1 = best-of-N implement attempts in parallel
+  min_tests: 3
+  max_stub_pass_fraction: 0.5
+  max_test_retries: 2
+  abort_on_invalid_tests: true
+  checkpoint_db: null             # e.g. outputs/checkpoints.db to resume interrupted runs
+
+monitor:
+  enabled: true
+  events_file: events.jsonl
+
+langsmith:                        # opt-in: sends prompts, code and outputs to LangSmith
+  enabled: false
+  project: custom-harness
+  tags: []
+  hide_inputs: false
+  hide_outputs: false
+  log_feedback: true
+
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+train:
+  output_dir: outputs/qwen-coder-sft
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-4           # typical LoRA range: 1e-4..2e-4
+  num_train_epochs: 2.0
+  max_steps: -1                   # > 0 overrides epochs (smoke runs)
+  max_length: 2048
+  drop_overlong: true             # never train on rows whose completion would be truncated
+  warmup_ratio: 0.03
+  learning_rate_scheduler: cosine
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  optimizer: adamw_torch          # paged_adamw_8bit saves memory on a T4 (needs bitsandbytes)
+  fp16: true
+  gradient_checkpointing: true
+  seed: 42
+  validation_fraction: 0.05       # held out BY TASK
+  logging_steps: 10
+  eval_steps: 50
+  save_steps: 50                  # a multiple of eval_steps
+  save_total_limit: 2
+  early_stopping_patience: 3      # evaluations without improvement; 0 = off
