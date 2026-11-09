@@ -31,12 +31,13 @@ def test_requirement_coverage_is_checked_by_code_not_trusted():
 
 def test_structural_problems_are_all_reported():
     broken = artifacts.TestSuite(tests=[
-        artifacts.TestCase(name="check_a", covers=["R9"], code="def check_a():\n    assert f(1)\n"),
-        artifacts.TestCase(name="test_b", covers=["R1"], code="def other():\n    pass\n"),
+        artifacts.TestCase(name="test_a", covers=["R9"], code="def check_a():\n    assert f(1)\n"),
+        artifacts.TestCase(name="test_b", covers=["R1"], code="def one():\n    pass\n\ndef two():\n    pass\n"),
         artifacts.TestCase(name="test_b", covers=["R2"], code="def test_b(:\n"),
     ])
+    assert broken.tests[0].code.startswith("def test_a():")  # a single misnamed function is renamed
     issues = "\n".join(artifacts.validate_test_suite(broken, 3, 5))
-    for expected in ("only 3 tests", "duplicate test name 'test_b'", "must start with 'test_'",
+    for expected in ("only 3 tests", "duplicate test name 'test_b'",
                      "unknown requirement id(s) ['R9']", "must define a function named test_b",
                      "not valid Python"):
         assert expected in issues, expected
@@ -76,6 +77,28 @@ def test_signatures_missing_def_or_with_a_colon_are_normalized_not_rejected():
     assert artifacts.normalize_signature("ProjectGrouperAdmin.add_project(self, name: str) -> None") == (
         "def add_project(self, name: str) -> None")
     assert artifacts.normalize_signature("def Stack.push(self, item)") == "def push(self, item)"
+
+
+def test_test_cases_written_as_bare_asserts_or_misnamed_are_normalized():
+    # the Kaggle baseline: body only, no def -> "code must define a function named test_empty_list"
+    body_only = artifacts.TestCase(name="test_empty_list", covers=["R1"], code="assert f([]) == []\n")
+    assert body_only.code == "def test_empty_list():\n    assert f([]) == []\n"
+    spaced = artifacts.TestCase(name="Test with empty list", covers=["r2", "Requirement R-3", "4"],
+                                code="def test_empty():\n    assert f([]) == []\n")
+    assert spaced.name == "test_with_empty_list" and spaced.code.startswith("def test_with_empty_list():")
+    assert spaced.covers == ["R2", "R3", "R4"]
+    unchanged = artifacts.TestCase(name="test_a", covers=["R1"], code="def helper():\n    pass\n\n"
+                                   "def test_a():\n    assert helper() is None\n")
+    assert unchanged.code.count("def ") == 2 and "def test_a():" in unchanged.code
+    suite = artifacts.TestSuite(tests=[body_only, spaced, artifacts.TestCase(
+        name="test_three", covers=["R1"], code="assert f([3]) == [9]")])
+    assert artifacts.validate_test_suite(suite, 4, 3) == []
+
+
+def test_uncovered_requirements_are_relaxed_only_when_asked():
+    assert artifacts.uncovered_requirements(UNCOVERED_SUITE, 3) == ["R3"]
+    assert artifacts.validate_test_suite(UNCOVERED_SUITE, 3, 3, max_uncovered_fraction=0.5) == []
+    assert artifacts.validate_test_suite(UNCOVERED_SUITE, 6, 3, max_uncovered_fraction=0.5)  # 4 of 6 untested
 
 
 def test_schemas_produce_json_schemas_for_guided_decoding():

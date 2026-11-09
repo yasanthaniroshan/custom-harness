@@ -32,6 +32,7 @@ from harness.sandbox import run_code_against_tests
 
 CUT_OFF_REASON = "output was cut off at max_new_tokens"
 PREVIOUS_SUITE_MAX_TOKENS = 1200
+LAST_ATTEMPT_MAX_UNCOVERED_FRACTION = 0.5  # share of requirements allowed untested on the last attempt
 
 
 class PipelineState(TypedDict, total=False):
@@ -141,9 +142,18 @@ def build_pipeline_graph(dependencies: PipelineDependencies, checkpointer=None):
     def validate_tests(state: PipelineState) -> dict:
         requirement_count = len(artifacts.Requirements.model_validate(state["requirements_data"]).requirements)
         suite = artifacts.TestSuite.model_validate(state["tests_data"])
-        issues = artifacts.validate_test_suite(suite, requirement_count, graph_config.min_tests,
-                                               run_against_empty_code, graph_config.max_stub_pass_fraction)
         attempt = state["test_attempts"]
+        # Retries demand a test for every requirement; the last attempt accepts a suite that
+        # still covers at least half of them (the gap is recorded) rather than discarding the run.
+        is_last_attempt = attempt > graph_config.max_test_retries
+        issues = artifacts.validate_test_suite(
+            suite, requirement_count, graph_config.min_tests, run_against_empty_code,
+            graph_config.max_stub_pass_fraction,
+            max_uncovered_fraction=LAST_ATTEMPT_MAX_UNCOVERED_FRACTION if is_last_attempt else 0.0)
+        uncovered_ids = artifacts.uncovered_requirements(suite, requirement_count)
+        if not issues and uncovered_ids:
+            dependencies.tracer.emit("artifact_warning", stage_name="write_tests",
+                                     warning=f"accepted without a test for {', '.join(uncovered_ids)}")
         update: dict = {"test_issues": issues, "tests_valid": not issues,
                         "llm_calls": [{"stage": "write_tests_gate", "attempt": attempt, "valid": not issues}]}
         if issues and attempt > graph_config.max_test_retries and graph_config.abort_on_invalid_tests:

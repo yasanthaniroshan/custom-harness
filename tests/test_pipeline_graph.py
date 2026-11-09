@@ -81,6 +81,13 @@ def test_test_gate_retries_with_validator_feedback_then_accepts():
     assert not any(call["stage"] == "write_tests_gate" for call in run["llm_calls"])
 
 
+def test_last_attempt_accepts_a_suite_missing_one_requirement_and_records_it():
+    scenario = Scenario(suites=[UNCOVERED_SUITE])  # 2 of 3 requirements tested, every attempt
+    state = invoke(scenario)
+    assert state["test_attempts"] == 3 and state["tests_valid"] and not state.get("failure_reason")
+    assert "code" in state
+
+
 def test_test_gate_catches_trivial_tests_by_running_them_against_empty_code():
     scenario = Scenario(suites=[TRIVIAL_SUITE, GOOD_SUITE])
     state = invoke(scenario)
@@ -89,7 +96,7 @@ def test_test_gate_catches_trivial_tests_by_running_them_against_empty_code():
 
 
 def test_test_gate_aborts_after_retries_so_no_implement_run_is_wasted():
-    scenario = Scenario(suites=[UNCOVERED_SUITE])
+    scenario = Scenario(suites=[TRIVIAL_SUITE])
     state = invoke(scenario)
     assert state["failure_reason"].startswith("write_tests: invalid test suite after 3 attempts")
     assert state["test_attempts"] == 3 and "code" not in state
@@ -98,7 +105,7 @@ def test_test_gate_aborts_after_retries_so_no_implement_run_is_wasted():
 
 
 def test_test_gate_can_proceed_with_invalid_tests_when_abort_is_off():
-    state = invoke(Scenario(suites=[UNCOVERED_SUITE]), abort_on_invalid_tests=False)
+    state = invoke(Scenario(suites=[TRIVIAL_SUITE]), abort_on_invalid_tests=False)
     assert state["tests_valid"] is False and not state.get("failure_reason") and "code" in state
     run = state_to_run(state, 1, 0, "system")
     assert rejection_reason(run, Config().filter) == "tests_gate_failed"
