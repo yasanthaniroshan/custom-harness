@@ -23,12 +23,11 @@ def read_kaggle_secret(name: str) -> str | None:
 
 
 def setup_huggingface_environment() -> None:
-    """Set HF_TOKEN if available and enable the fast download backends."""
+    """Set HF_TOKEN if available and enable fast (Xet) downloads."""
     if not os.environ.get("HF_TOKEN"):
         token = read_kaggle_secret("HF_TOKEN")
         if token:
             os.environ["HF_TOKEN"] = token
-    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
     os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
 
 

@@ -55,10 +55,27 @@ def test_requirement_and_design_validation():
     assert artifacts.validate_requirements(artifacts.Requirements(requirements=["", " "]))
     assert artifacts.validate_requirements(REQUIREMENTS) == []
     assert artifacts.validate_design(artifacts.Design(functions=[], approach="x"))
-    not_python = artifacts.Design(
-        functions=[artifacts.FunctionSpec(name="f", signature="f(x)", behavior="b")], approach="x")
-    assert "must be a Python signature" in artifacts.validate_design(not_python)[0]
-    assert artifacts.validate_design(DESIGN) == []
+    not_python = artifacts.Design(functions=[
+        artifacts.FunctionSpec(name="f", signature="int f(int x)", behavior="b"),
+        artifacts.FunctionSpec(name="f", signature="int f(int x)", behavior="b")], approach="x")
+    assert artifacts.validate_design(not_python) == []  # formatting never fails the run...
+    warnings = artifacts.design_warnings(not_python)
+    assert len(warnings) == 1 and "not a valid Python signature" in warnings[0]  # ...it is a warning, once
+    assert artifacts.validate_design(DESIGN) == [] and artifacts.design_warnings(DESIGN) == []
+
+
+def test_signatures_missing_def_or_with_a_colon_are_normalized_not_rejected():
+    for written in ("fibonacci(n: int) -> int", "def fibonacci(n: int) -> int:", " fibonacci(n) "):
+        spec = artifacts.FunctionSpec(name="fibonacci", signature=written, behavior="b")
+        assert spec.signature.startswith("def fibonacci(n"), written
+        assert artifacts.validate_design(artifacts.Design(functions=[spec], approach="x")) == []
+    assert artifacts.normalize_signature("class Stack") == "class Stack"
+    assert artifacts.normalize_signature("async def fetch(url: str) -> bytes") == "async def fetch(url: str) -> bytes"
+    assert artifacts.normalize_signature("") is None
+    # methods qualified with their class, as Qwen writes them
+    assert artifacts.normalize_signature("ProjectGrouperAdmin.add_project(self, name: str) -> None") == (
+        "def add_project(self, name: str) -> None")
+    assert artifacts.normalize_signature("def Stack.push(self, item)") == "def push(self, item)"
 
 
 def test_schemas_produce_json_schemas_for_guided_decoding():

@@ -123,8 +123,13 @@ def command_report(arguments: argparse.Namespace, config: Config) -> None:
     from harness.monitoring import format_report, read_events, summarize_events
 
     path = Path(arguments.events)
-    path = path / config.monitor.events_file if path.is_dir() else path
-    print(format_report(summarize_events(read_events(path))))
+    events_files = sorted(path.glob("*events.jsonl")) if path.is_dir() else [path]
+    if not events_files:
+        raise SystemExit(f"error: no *events.jsonl file in {path}")
+    for events_file in events_files:  # e.g. events.jsonl, eval_events.jsonl, humaneval_events.jsonl
+        if len(events_files) > 1:
+            print(f"\n=== {events_file.name} ===")
+        print(format_report(summarize_events(read_events(events_file))))
 
 
 # ---- serving ----------------------------------------------------------------------------

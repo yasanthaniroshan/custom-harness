@@ -46,6 +46,7 @@ def test_notebook_drives_every_stage_through_the_cli_and_never_prints_secrets():
     assert 'replace(token, "***")' in text  # git errors are redacted
     # Kaggle's Python has no ensurepip: the vLLM env is built with uv, never `python -m venv`
     assert "-m venv" not in text and "uv venv" in text and "uv pip install" in text
+    assert "check_vllm_gpu.py" in text
 
 
 def test_kaggle_config_loads_with_no_unknown_keys_and_sets_t4_friendly_values():
@@ -72,7 +73,7 @@ def test_bundle_contains_source_and_excludes_environments_and_outputs(tmp_path):
     import bundle
 
     names = {path.relative_to(PROJECT_ROOT).as_posix() for path in bundle.files()}
-    assert {"pyproject.toml", "src/harness/cli.py", "configs/kaggle.yaml"} <= names
+    assert {"pyproject.toml", "src/harness/cli.py", "configs/kaggle.yaml", "scripts/check_vllm_gpu.py"} <= names
     assert not any(".venv" in name or "__pycache__" in name or name.startswith("outputs") or name.endswith(".pyc")
                    for name in names)
 

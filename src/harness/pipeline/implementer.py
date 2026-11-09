@@ -2,7 +2,11 @@ r"""The tool-using implement stage, as a LangGraph subgraph run once per candida
 
     setup -> model --tool calls--> tools -> after_tools --continue--> model
                |--malformed call--> malformed_call ---/     \--stop--> finish
+               |--no tool call, nothing written--> no_code_written --/
                \--no tool call--> finish
+
+Tool calls the server's parser missed (JSON in a code fence) are recovered first
+(tool_call_recovery.py).
 
 Each candidate gets its own temporary workspace. The hidden tests are only ever passed to the
 `run_tests` tool and to the final verification, in memory; they are never in the workspace.
@@ -29,6 +33,7 @@ from harness.pipeline.dependencies import PipelineDependencies
 from harness.pipeline.messages import compact_messages, message_text, to_chat_dict
 from harness.pipeline.stages import IMPLEMENT
 from harness.pipeline.tool_adapters import to_langchain_tools, tool_error_message
+from harness.pipeline.tool_call_recovery import with_recovered_tool_calls
 from harness.sandbox import run_workspace_against_tests
 from harness.tools import Tool, Workspace, build_tool_registry
 
@@ -36,6 +41,10 @@ CLEAR_CANDIDATES = "__clear__"
 MALFORMED_CALL_FEEDBACK = (
     "ERROR: your tool call could not be parsed. Reply with valid JSON: "
     '<tool_call>{"name": "<tool>", "arguments": {...}}</tool_call>')
+NO_CODE_WRITTEN_FEEDBACK = (
+    "ERROR: nothing has been written to the workspace yet, and code in a chat message is not "
+    "saved. Call the write_file tool with path {solution_file!r} and the full code as `content`, "
+    "then call run_tests.")
 
 
 def merge_candidates(existing: list | None, update: list | str) -> list:
@@ -73,6 +82,7 @@ class ImplementerSession:
     model_with_tools: Any
     tool_node: ToolNode
     tool_schemas: list[dict]
+    tool_names: set[str]
 
 
 _SESSIONS: dict[str, ImplementerSession] = {}
@@ -136,6 +146,7 @@ def build_implementer_graph(dependencies: PipelineDependencies):
             model_with_tools=dependencies.chat_models.get(dependencies.code_temperature).bind_tools(langchain_tools),
             tool_node=ToolNode(langchain_tools, handle_tool_errors=tool_error_message),
             tool_schemas=[convert_to_openai_tool(tool) for tool in langchain_tools],
+            tool_names={tool.name for tool in langchain_tools},
         )
         with _SESSIONS_LOCK:
             _SESSIONS[session_id] = session
@@ -154,6 +165,9 @@ def build_implementer_graph(dependencies: PipelineDependencies):
             state["messages"], dependencies.prompt_builder.config.max_prompt_tokens,
             dependencies.prompt_builder.count_tokens, dependencies.tracer)
         reply = session.model_with_tools.invoke(visible_messages, config)
+        reply, recovered_count = with_recovered_tool_calls(reply, session.tool_names)
+        if recovered_count:
+            dependencies.tracer.emit("tool_call_recovered", stage_name="implement", count=recovered_count)
         turn = {"messages": [to_chat_dict(message) for message in visible_messages],
                 "completion": to_chat_dict(reply)}
         return {"messages": [reply], "candidate_turns": [turn],
@@ -165,6 +179,8 @@ def build_implementer_graph(dependencies: PipelineDependencies):
             return "tools"
         if "<tool_call>" in message_text(last_message.content):  # the server could not parse it
             return "malformed_call"
+        if not _SESSIONS[state["candidate_session_id"]].workspace.changed_files():
+            return "no_code_written"  # it answered in prose or pasted code instead of using tools
         return "finish"
 
     def run_tools(state: CandidateState, config: RunnableConfig) -> dict:
@@ -198,6 +214,13 @@ def build_implementer_graph(dependencies: PipelineDependencies):
                 "candidate_error_streak": error_streak,
                 "candidate_tool_calls": state["candidate_tool_calls"] + 1,
                 "candidate_tool_errors": state["candidate_tool_errors"] + 1,
+                "candidate_stop_reason": stop_reason(state, error_streak)}
+
+    def no_code_written(state: CandidateState) -> dict:
+        error_streak = state["candidate_error_streak"] + 1
+        feedback = NO_CODE_WRITTEN_FEEDBACK.format(solution_file=agent_config.solution_file)
+        return {"messages": [HumanMessage(feedback)],
+                "candidate_error_streak": error_streak,
                 "candidate_stop_reason": stop_reason(state, error_streak)}
 
     def route_continue(state: CandidateState) -> str:
@@ -234,14 +257,17 @@ def build_implementer_graph(dependencies: PipelineDependencies):
     graph.add_node("tools", run_tools)
     graph.add_node("after_tools", after_tools)
     graph.add_node("malformed_call", malformed_call)
+    graph.add_node("no_code_written", no_code_written)
     graph.add_node("finish", finish)
     graph.add_edge(START, "setup")
     graph.add_edge("setup", "model")
     graph.add_conditional_edges("model", route_after_model,
-                                {"tools": "tools", "malformed_call": "malformed_call", "finish": "finish"})
+                                {"tools": "tools", "malformed_call": "malformed_call",
+                                 "no_code_written": "no_code_written", "finish": "finish"})
     graph.add_edge("tools", "after_tools")
     graph.add_conditional_edges("after_tools", route_continue, {"model": "model", "finish": "finish"})
     graph.add_conditional_edges("malformed_call", route_continue, {"model": "model", "finish": "finish"})
+    graph.add_conditional_edges("no_code_written", route_continue, {"model": "model", "finish": "finish"})
     graph.add_edge("finish", END)
     # No checkpoints inside a candidate: its temporary workspace cannot survive a process
     # restart, so the parent graph treats a whole candidate as one atomic step.

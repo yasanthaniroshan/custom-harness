@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INCLUDED_PATHS = ["src", "configs", "pyproject.toml", "uv.lock", "README.md"]
+INCLUDED_PATHS = ["src", "configs", "scripts", "pyproject.toml", "uv.lock", "README.md"]
 EXCLUDED_DIRECTORY_NAMES = {"__pycache__", ".venv", ".pytest_cache", ".ruff_cache", "outputs"}
 
 

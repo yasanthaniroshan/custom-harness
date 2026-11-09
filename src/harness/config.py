@@ -17,7 +17,7 @@ import yaml
 class ModelConfig:
     """The base model and how it is loaded for training."""
 
-    path: str = "/kaggle/input/qwen2.5-coder/transformers/7b-instruct/1"
+    path: str = "/kaggle/input/models/qwen-lm/qwen2.5-coder/transformers/7b-instruct/1"
     load_in_4bit: bool = True
     quantization_type: str = "nf4"
     double_quantization: bool = True

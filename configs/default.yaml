@@ -2,7 +2,7 @@
 # Override any value with a smaller YAML file: harness --config my.yaml <command>
 
 model:
-  path: /kaggle/input/qwen2.5-coder/transformers/7b-instruct/1
+  path: /kaggle/input/models/qwen-lm/qwen2.5-coder/transformers/7b-instruct/1
   load_in_4bit: true
   quantization_type: nf4
   double_quantization: true

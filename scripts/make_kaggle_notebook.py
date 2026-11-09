@@ -141,7 +141,13 @@ SETUP = '''if stage("setup"):
         sh(f"{sys.executable} -m pip install -q uv")
         sh(f"{sys.executable} -m uv venv --python {sys.executable} {vllm_env}")
         sh(f"{sys.executable} -m uv pip install --python {vllm_env / 'bin' / 'python'} '{VLLM_SPEC}'")
+    # Kaggle's sitecustomize imports wrapt; without it every vLLM process prints an error.
+    sh(f"{sys.executable} -m uv pip install -q --python {vllm_env / 'bin' / 'python'} wrapt")
     sh(f"{vllm_env / 'bin' / 'vllm'} --version")
+    # `vllm --version` never touches the GPU. Check that the torch inside the vLLM env can use
+    # both T4s with this driver, so an incompatible build fails here and not at `serve`.
+    sh("nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv")
+    sh(f"{vllm_env / 'bin' / 'python'} {REPO / 'scripts' / 'check_vllm_gpu.py'}")
     write_config()
     OUT.mkdir(parents=True, exist_ok=True)
     record_code_version()
@@ -156,7 +162,7 @@ if stage("setup", "baseline", "generate", "train", "evaluate"):
             os.environ[name] = secrets.get_secret(name)
         except Exception:
             print(f"secret {name} not set (fine unless you need it)")
-    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+    os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
     if not CONFIG.exists():
         write_config()
 '''

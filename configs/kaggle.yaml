@@ -1,11 +1,11 @@
 # Kaggle (2x T4) overrides. The notebook copies this file, applies per-round settings, and
 # passes the result with --config. Everything not listed here uses the defaults.
 model:
-  path: /kaggle/input/qwen2.5-coder/transformers/7b-instruct/1   # attach this Kaggle Model
+  path: /kaggle/input/models/qwen-lm/qwen2.5-coder/transformers/7b-instruct/1   # attach this Kaggle Model
   training_gpu_index: 0           # training uses GPU 0 only (4-bit QLoRA)
 
 serve:
-  tokenizer: /kaggle/input/qwen2.5-coder/transformers/7b-instruct/1
+  tokenizer: /kaggle/input/models/qwen-lm/qwen2.5-coder/transformers/7b-instruct/1
   vllm_executable: /kaggle/working/vllm-env/bin/vllm   # vLLM lives in its own virtualenv
   concurrency: 16
 

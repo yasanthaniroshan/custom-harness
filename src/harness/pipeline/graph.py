@@ -117,6 +117,9 @@ def build_pipeline_graph(dependencies: PipelineDependencies, checkpointer=None):
             issues = [failure] if parsed is None else (validate(parsed) if validate else [])
             if issues:
                 return {**update, "failure_reason": f"{stage.name}: " + "; ".join(issues)}
+            if stage is DESIGN:
+                for warning in artifacts.design_warnings(parsed):
+                    dependencies.tracer.emit("artifact_warning", stage_name=stage.name, warning=warning)
             return {**update, text_key: render(parsed), data_key: parsed.model_dump()}
 
         return node

@@ -7,10 +7,11 @@ never JSON-wrapped: the implementer writes it through tool calls.
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Callable
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Requirements(BaseModel):
@@ -23,12 +24,44 @@ class Requirements(BaseModel):
         default_factory=list, description="Every assumption made, stated explicitly.")
 
 
+_QUALIFIED_NAME = re.compile(r"^((?:async\s+)?(?:def\s+)?)(?:\w+\.)+(\w+\s*\()")
+
+
+def normalize_signature(signature: str) -> str | None:
+    """A Python `def`/`class` header for `signature`, or None if it is not one.
+
+    Models often leave out the `def` keyword, add a trailing colon, or qualify a method with its
+    class (`Stack.push(self, item)`); all are fixed here, so a usable signature is never
+    rejected over formatting.
+    """
+    header = signature.strip().removesuffix(":").strip()
+    if not header:
+        return None
+    # `def Stack.push(...)` / `Stack.push(...)` -> `def push(...)`: keep only the method name
+    header = _QUALIFIED_NAME.sub(lambda match: match.group(1) + match.group(2), header, count=1)
+    has_keyword = header.startswith(("def ", "async def ", "class "))
+    candidates = [header] if has_keyword else [f"def {header}", f"class {header}"]
+    for candidate in candidates:
+        try:
+            ast.parse(candidate + ":\n    pass\n")
+        except SyntaxError:
+            continue
+        return candidate
+    return None
+
+
 class FunctionSpec(BaseModel):
     name: str = Field(description="Function name.")
     signature: str = Field(
-        description="Full signature with types, e.g. 'def merge(xs: list[int]) -> list[int]'.")
+        description="Python signature with types, starting with def, "
+                    "e.g. 'def merge(xs: list[int]) -> list[int]'.")
     behavior: str = Field(description="What it does, including how edge cases behave.")
     raises: list[str] = Field(default_factory=list, description="Exceptions it raises, and when.")
+
+    @field_validator("signature")
+    @classmethod
+    def _normalize_signature(cls, signature: str) -> str:
+        return normalize_signature(signature) or signature  # invalid ones are reported by validate_design
 
 
 class Design(BaseModel):
@@ -115,13 +148,27 @@ def validate_requirements(requirements: Requirements) -> list[str]:
 
 
 def validate_design(design: Design) -> list[str]:
-    issues = []
+    """Problems that make the design unusable (they fail the run).
+
+    Signature formatting is deliberately NOT one of them: signatures are normalized where
+    possible, and one the implementer can still read (e.g. `int f(int x)`) is reported by
+    design_warnings instead of throwing the whole run away.
+    """
     if not design.functions:
-        issues.append("the design lists no functions")
+        return ["the design lists no functions"]
+    return []
+
+
+def design_warnings(design: Design) -> list[str]:
+    """Non-fatal problems: signatures that are not valid Python, each reported once."""
+    warnings: list[str] = []
     for function in design.functions:
-        if not function.signature.strip().startswith(("def ", "async def ", "class ")):
-            issues.append(f"signature of {function.name!r} must be a Python signature")
-    return issues
+        if normalize_signature(function.signature) is None:
+            warning = (f"signature of {function.name!r} is not a valid Python signature: "
+                       f"{function.signature[:80]!r}")
+            if warning not in warnings:
+                warnings.append(warning)
+    return warnings
 
 
 StubRunner = Callable[[str], dict[str, bool]]  # rendered tests -> {test name: passed}
