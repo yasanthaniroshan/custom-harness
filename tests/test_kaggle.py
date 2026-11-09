@@ -44,6 +44,8 @@ def test_notebook_drives_every_stage_through_the_cli_and_never_prints_secrets():
     assert "GIT_REF" in text and "record_code_version()" in text
     assert 'print(f"$ git clone {url} (ref {ref})")' in text  # the clean URL, never the token
     assert 'replace(token, "***")' in text  # git errors are redacted
+    # Kaggle's Python has no ensurepip: the vLLM env is built with uv, never `python -m venv`
+    assert "-m venv" not in text and "uv venv" in text and "uv pip install" in text
 
 
 def test_kaggle_config_loads_with_no_unknown_keys_and_sets_t4_friendly_values():

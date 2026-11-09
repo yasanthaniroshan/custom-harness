@@ -133,9 +133,15 @@ SETUP = '''if stage("setup"):
     # 2) the project + training stack into the notebook environment (keeps Kaggle's torch)
     sh(f"pip install -q -e '{REPO}[train]'")
     # 3) vLLM in its OWN virtualenv: installing it here could replace torch and break training
-    if not (WORK / "vllm-env").exists():
-        sh(f"python -m venv {WORK / 'vllm-env'}")
-        sh(f"{WORK / 'vllm-env' / 'bin' / 'pip'} install -q {VLLM_SPEC}")
+    #    Kaggle's Python has no ensurepip, so the standard venv module fails; uv builds the env without it.
+    #    The check is on the vllm executable, so a half-built env from a failed attempt is rebuilt.
+    vllm_env = WORK / "vllm-env"
+    if not (vllm_env / "bin" / "vllm").exists():
+        sh(f"rm -rf {vllm_env}")
+        sh(f"{sys.executable} -m pip install -q uv")
+        sh(f"{sys.executable} -m uv venv --python {sys.executable} {vllm_env}")
+        sh(f"{sys.executable} -m uv pip install --python {vllm_env / 'bin' / 'python'} '{VLLM_SPEC}'")
+    sh(f"{vllm_env / 'bin' / 'vllm'} --version")
     write_config()
     OUT.mkdir(parents=True, exist_ok=True)
     record_code_version()
