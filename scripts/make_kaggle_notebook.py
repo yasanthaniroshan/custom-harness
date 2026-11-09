@@ -163,6 +163,7 @@ if stage("setup", "baseline", "generate", "train", "evaluate"):
         except Exception:
             print(f"secret {name} not set (fine unless you need it)")
     os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
+    os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)  # set by the Kaggle image; deprecated, only warns
     if not CONFIG.exists():
         write_config()
 '''

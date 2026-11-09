@@ -65,20 +65,24 @@ class TracerCallback(BaseCallbackHandler):
         self.tracer.emit("llm_error", stage_name=stage, error=type(error).__name__)
 
 
-def thread_id_for(round_name: str, task_id: Any, sample: int) -> str:
-    """Checkpoint key of one run: the same (round, task, sample) resumes the same thread."""
-    return f"{round_name}:{task_id}:{sample}"
+def thread_id_for(checkpoint_scope: str, task_id: Any, sample: int) -> str:
+    """Checkpoint key of one run: the same (scope, task, sample) resumes the same thread."""
+    return f"{checkpoint_scope}:{task_id}:{sample}"
 
 
 def run_config(config: Config, task_id: Any, sample: int, round_name: str, callbacks: list,
-               run_id: UUID | None = None) -> dict:
-    """RunnableConfig for one graph run; name, tags and metadata show up in LangSmith."""
+               run_id: UUID | None = None, checkpoint_scope: str | None = None) -> dict:
+    """RunnableConfig for one graph run; name, tags and metadata show up in LangSmith.
+
+    checkpoint_scope keys the run's checkpoint thread (default: round_name). The batch runner
+    passes one tied to the output file, so checkpoints never leak into another output.
+    """
     runnable_config: dict = {
         "run_name": f"sdlc:{task_id}:{sample}",
         "tags": ["harness", round_name, *config.langsmith.tags],
         "metadata": {"task_id": task_id, "sample": sample, "round": round_name},
         "callbacks": callbacks,
-        "configurable": {"thread_id": thread_id_for(round_name, task_id, sample)},
+        "configurable": {"thread_id": thread_id_for(checkpoint_scope or round_name, task_id, sample)},
         "max_concurrency": config.serve.concurrency,
         # LangGraph's default limit of 25 supersteps is too low for the tool loop
         "recursion_limit": SUPERSTEPS_PER_AGENT_STEP * config.agent.max_agent_steps + RECURSION_LIMIT_HEADROOM,

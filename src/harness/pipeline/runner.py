@@ -5,6 +5,10 @@ continuous batching turns the concurrent requests into GPU batches. Each finishe
 appended to a JSONL file immediately, so a crash loses at most the runs in flight. With a
 checkpointer, runs interrupted mid-graph resume from their last completed stage.
 
+Checkpoints belong to one output file: their key includes a scope id stored next to it
+(`runs.jsonl.checkpoint-scope`). Deleting the output directory therefore starts every run
+fresh, and a different output directory (another round, a new adapter) never replays old runs.
+
 A run record (one JSONL line) looks like:
     {"task_id", "sample", "system_prompt",
      "artifacts": {"task", "requirements", "design", "tests", "code", "diff", "test_output", "review"},
@@ -15,6 +19,7 @@ A run record (one JSONL line) looks like:
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +36,15 @@ from harness.training_data.trajectory_filter import rejection_reason
 
 ARTIFACT_KEYS = ("task", "requirements", "design", "tests", "code", "diff", "test_output", "review")
 PROGRESS_EVERY_RUNS = 10
+CHECKPOINT_SCOPE_SUFFIX = ".checkpoint-scope"
+
+
+def checkpoint_scope_for(output_path: Path) -> str:
+    """The checkpoint scope of `output_path`: created once, kept while its directory exists."""
+    scope_file = output_path.with_name(output_path.name + CHECKPOINT_SCOPE_SUFFIX)
+    if not scope_file.exists():
+        scope_file.write_text(uuid.uuid4().hex + "\n")
+    return scope_file.read_text().strip()
 
 
 def state_to_run(state: dict, task_id: Any, sample: int, system_prompt: str) -> dict:
@@ -108,7 +122,8 @@ def run_tasks(
     log(f"{len(tasks) * samples_per_task} runs, {len(already_done)} already done, {len(pending)} to run")
     callbacks = [TracerCallback(tracer, count_tokens)]
     run_ids = [new_run_id() for _ in pending]
-    run_configs = [run_config(config, task["task_id"], sample, round_name, callbacks, run_id)
+    checkpoint_scope = checkpoint_scope_for(output_path)
+    run_configs = [run_config(config, task["task_id"], sample, round_name, callbacks, run_id, checkpoint_scope)
                    for (task, sample), run_id in zip(pending, run_ids, strict=True)]
     # run_config's max_concurrency is also the size of batch_as_completed's worker pool
     graph_inputs: list[Any] = [{"task": task["task"]} for task, _ in pending]

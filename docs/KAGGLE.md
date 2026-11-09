@@ -67,6 +67,8 @@ Sessions last <= 12 h and the weekly GPU quota is limited. vLLM (both GPUs) and 
 cannot run together, so stages are sequential; the filtered data and adapter persist in
 `/kaggle/working`. Generation resumes where it stopped (`runs.jsonl` is appended per run, and
 `graph.checkpoint_db` resumes runs interrupted mid-graph), so a timed-out session loses little.
+To re-run a stage from scratch (e.g. after a code change), delete its output directory: the
+checkpoints are tied to it through `<runs file>.checkpoint-scope`, so they are discarded too.
 **Run the pilot first and time each stage** before scaling `NUM_TASKS`: I could not measure
 throughput without the hardware.
 

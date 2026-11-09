@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 
 import pytest
 
@@ -121,14 +122,26 @@ def test_checkpoints_resume_only_the_unfinished_stage_after_a_crash(tmp_path):
 def test_completed_checkpoints_are_collected_without_running_again(tmp_path):
     checkpoint_db = str(tmp_path / "checkpoints.db")
     scenario = Scenario()
-    (tmp_path / "first").mkdir()
-    run(scenario, tmp_path / "first", samples_per_task=1, checkpoint_db=checkpoint_db, tasks=TASKS[:2])
+    run(scenario, tmp_path, samples_per_task=1, checkpoint_db=checkpoint_db, tasks=TASKS[:2])
     call_count = len(scenario.calls)
-    (tmp_path / "second").mkdir()
-    stats, runs = run(scenario, tmp_path / "second", samples_per_task=1, checkpoint_db=checkpoint_db,
-                      tasks=TASKS[:2])
+    (tmp_path / "runs.jsonl").unlink()  # finished in the checkpoint, but the records were lost
+    stats, runs = run(scenario, tmp_path, samples_per_task=1, checkpoint_db=checkpoint_db, tasks=TASKS[:2])
     assert stats["from_checkpoint"] == 2 and stats["completed"] == 2 and len(scenario.calls) == call_count
     assert all(run_record["passed"] for run_record in runs)
+
+
+def test_checkpoints_never_leak_into_another_or_a_cleared_output_directory(tmp_path):
+    # the Kaggle bug: a shared checkpoint DB replayed an old round's results into a new directory
+    checkpoint_db = str(tmp_path / "checkpoints.db")
+    scenario = Scenario()
+    first, second = tmp_path / "round0" / "baseline", tmp_path / "round1" / "baseline"
+    run(scenario, first, samples_per_task=1, checkpoint_db=checkpoint_db, tasks=TASKS[:2])
+    call_count = len(scenario.calls)
+    stats, _ = run(scenario, second, samples_per_task=1, checkpoint_db=checkpoint_db, tasks=TASKS[:2])
+    assert stats["from_checkpoint"] == 0 and stats["completed"] == 2 and len(scenario.calls) > call_count
+    shutil.rmtree(first)  # clearing a directory also clears its checkpoints
+    stats, _ = run(scenario, first, samples_per_task=1, checkpoint_db=checkpoint_db, tasks=TASKS[:2])
+    assert stats["from_checkpoint"] == 0 and stats["completed"] == 2
 
 
 def test_run_records_have_safe_defaults_for_aborted_runs():

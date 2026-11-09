@@ -29,6 +29,7 @@ def setup_huggingface_environment() -> None:
         if token:
             os.environ["HF_TOKEN"] = token
     os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
+    os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)  # set by the Kaggle image; deprecated, only warns
 
 
 def pin_single_gpu(gpu_index: int = 0) -> None:
